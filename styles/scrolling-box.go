@@ -6,13 +6,17 @@ import (
 	"github.com/elweday/subtitles-go/helpers"
 )
 func ScrollingBox(words []helpers.Item, idx int, perc float64) string {
-	scale := helpers.Spring( 0.92, 1.05, helpers.SpringOptions{ Stiffness: 100, Damping: 10, Mass: 1 } )
-	html := "<p>"
+	html := "<p style='text-align: left; color: black;  font-size: 80px; padding: 0px; '>"
 	for i, word := range words {
 		if i != idx {
 			html += word.Word + " "
 		} else {
-			html += fmt.Sprintf("<span style='scale: %f;' class='selected'>%s</span> ", scale(perc), word.Word)
+			html += fmt.Sprintf(
+				`<span style='scale: %f; background: blue; padding: 50px; border-radius: 10px; color: white; display: inline-block; height: fit-content;' >
+					%s
+				</span> `,
+				perc,
+				word.Word)
 		}
 	}
 	return html + "</p>"
