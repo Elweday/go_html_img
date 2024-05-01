@@ -1,28 +1,26 @@
 package styles
 
 import (
-	"fmt"
-
-	"github.com/elweday/subtitles-go/helpers"
+	"github.com/elweday/subtitles-go/types"
 )
-func Fading(words []helpers.Item, idx int, perc float64) string {
-	html := "<p style='text-align: left; color: black;  font-size: 80px; padding: 0px; '>"
-	for i, word := range words {
-		if i < idx{
-			html += word.Word + " "
-		} else if i==idx  {
-			html += fmt.Sprintf(`
-			&nbsp;
-			<span style='position: relative; padding: 0;'>
-				<span style='opacity: %f; position: absolute; top: %dpx;'>%s</span>
-			</span>
-			`,
-				perc,
-				int((1-perc)*40),
-				word.Word,
-			)
-		}
-	}
-	return html + "</p>"
-}
 
+var fadingTemplate = `
+<p style='text-align: left; color: black; font-size: 80px; padding: 0px; display: flex; flex-wrap: wrap; '>
+{{ range $index, $word := .Words }}
+	{{ if lt $index $.Index }}
+		{{ $word.Word }} 
+	{{ else if eq $index $.Index }}
+		&nbsp;
+		<span style='position: relative; display: inline-block; padding: 0; white-space: nowrap;'>
+			<span style='opacity: {{ printf "%.2f" $.Percentage }}; position: absolute; top: {{ offset $.Percentage }}px;'>{{ $word.Word }}</span>
+		</span>
+	{{ end }}
+{{ end }}
+</p>
+`
+
+var Fading = types.NewStyle("fading", fadingTemplate, map[string]any{
+		"offset": func (perc float64) int {
+			 return int((1-perc) * 40)
+		},
+})

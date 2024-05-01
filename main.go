@@ -7,23 +7,22 @@ import (
 	"log"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"sync"
 	"time"
 
 	"github.com/elweday/subtitles-go/helpers"
 	"github.com/elweday/subtitles-go/styles"
+	"github.com/elweday/subtitles-go/types"
 )
 
 const chromaColor = "00ff00"
 const DIGITS = 5;
 
 
-type Style map[string]func(words []helpers.Item, idx int, perc float64) string
+type Style map[string]func(args types.Args) string
 
 var style = Style{
 	"fading": styles.Fading,
-	"scrolling-box": styles.ScrollingBox,
 }
 
 func formatHtml(body string) string {
@@ -39,10 +38,14 @@ func formatHtml(body string) string {
 
 }
 
-func RenderWord(words []helpers.Item, index int, output string, perc float64) {
-	subtitlesStyle :=  "scrolling-box"
-	body := "`" + style[subtitlesStyle](words, index, perc) +"`"
-
+func RenderWord(words []helpers.Item, index int, perc float64) []byte {
+	subtitlesStyle :=  "fading"
+	args := types.Args{
+		Words: words,
+		Index: index,
+		Percentage: perc,
+	}
+	body := style[subtitlesStyle](args)
 	
 	html := formatHtml(body)
 
@@ -51,9 +54,11 @@ func RenderWord(words []helpers.Item, index int, output string, perc float64) {
 		log.Fatal(err)
 	}
 
-	if err := os.WriteFile(output, imageBytes, 0644); err != nil {
+/* 	if err := os.WriteFile(output, imageBytes, 0644); err != nil {
 		log.Fatal(err)
 	}
+ */
+	return imageBytes
 }
 
 func min(a, b int) int {
@@ -63,11 +68,12 @@ func min(a, b int) int {
     return b
 }
 
-func RenderWords(words []helpers.Item) error {
-	newpath := filepath.Join(".", "images")
-	os.MkdirAll(newpath, os.ModePerm)
+type Update struct {
+	Index int
+	Data  []byte
+}
 
-
+func RenderWords(words []helpers.Item, shared *TypedMap[int, []byte]) (int, error) {
 	var wg sync.WaitGroup
 	count := 0;
 	for i:=1; i<len(words); i++ {
@@ -77,20 +83,21 @@ func RenderWords(words []helpers.Item) error {
 
 		for j := 0; j < frames; j++ {
 			count += 1
-			output := fmt.Sprintf("./images/img_%0*d.jpeg", DIGITS, count)
+			// output := fmt.Sprintf("./images/img_%0*d.jpeg", DIGITS, count)
 			duration := 50
 			nframes := min(frames, duration)
-			perc := float64(j) / float64(nframes)
+			p := float64(j) / float64(nframes)
 
 			wg.Add(1)
-			go func(index int, output string, perc float64) {
+			go func(index int, perc float64) {
 				defer wg.Done()
-				RenderWord(words, index, output, perc)
-			}(i, output, perc)
+				imageBytes := RenderWord(words, index, perc)
+				shared.Store(index, imageBytes)
+			}(i, p)
 		}
 	}
 	wg.Wait()
-	return nil
+	return count, nil
 
 }
 
@@ -101,47 +108,58 @@ func main() {
 		fmt.Printf("Video created successfully! %s", time.Since(start))
 	}()
 
-	fps := 15;
+	fps := 30;
 	words, err := helpers.ReadAndConvertToFrames("time_stamps.json", fps);
 	if err != nil {
 		panic(err)
 	}
-	err = RenderWords(words)
-	   if err != nil {
-        log.Fatal(err)
-        return
-    }
-	fmt.Println("frames rendered ")
-	
+	fmt.Println("STAGE 0 done ")
+	sharedMap := TypedMap[int, []byte]{}
+
+	count, _ := RenderWords(words, &sharedMap)
+
 	cmd := exec.Command("ffmpeg",
 		"-y",
-        "-f", "image2",
-        "-framerate", fmt.Sprint(fps), // Adjust frame rate as per your requirement
-        "-i", "./images/img_%05d.jpeg", // Input PNG files path pattern
-        "-c:v", "libx264",
-        "-pix_fmt", "yuv420p",
-        "-vf", fmt.Sprintf("colorkey=0x%s:0.1:0.1", chromaColor), // Scaling and Chroma key filter
-        "output.mp4",
-    )
-	// cmd.Stderr = os.Stderr
+		"-f", "rawvideo",
+		"-pixel_format", "rgb24",
+		"-video_size", "1080x1920",
+    	"-framerate", fmt.Sprint(fps), // Adjust frame rate as per your requirement
+		"-i", "pipe:0",
+		"-c:v", "libx264",
+		"-pix_fmt", "yuv420p",
+		"output.mp4",
+	)
+
+    pipeReader, pipeWriter := io.Pipe()
+
+    cmd.Stdin = pipeReader
+    cmd.Stdout = os.Stdout
+    cmd.Stderr = os.Stderr
 
 
-    err = cmd.Run()
+    // Close the writer once ffmpeg is done writing
+    defer func() {
+        pipeWriter.Close()
+        cmd.Wait()
+    }()
 
-    if err != nil {
-        log.Fatal(err)
-        return
-    }
 
-    fmt.Println("Video created successfully!")
+	for i :=0; i<count; i++ {
+		b, ok := sharedMap.Load(i)
+	
+		if ok  {
+			pipeWriter.Write(b);
+		}
+	}
+
+	cmd.Run()
+
 }
 
 
 func htmlToImage(html string) ([]byte, error) {
-    // Create a pipe
     pr, pw := io.Pipe()
-
-    // Execute wkhtmltoimage command
+	
     cmd := exec.Command("wkhtmltoimage", "-", "-")
     cmd.Stdin = pr // Set the pipe as stdin
     var out bytes.Buffer
@@ -167,3 +185,5 @@ func htmlToImage(html string) ([]byte, error) {
     imageBytes := out.Bytes()
     return imageBytes, nil
 }
+
+

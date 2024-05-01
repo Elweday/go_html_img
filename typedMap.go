@@ -8,11 +8,12 @@ type TypedMap[K any, V any] struct {
 	sync.Map
 }
 
-// LoadBytes safely loads the value associated with the key as []byte
-// If the value is not a []byte, returns nil and false
+// Load safely loads the value associated with the key
+// If the value does not exist returns nil and false
 func (tm *TypedMap[K, V]) Load(key K) (V, bool) {
-	value, ok := tm.Map.Load(key)
-	return value.(V), ok
+	value, ok1 := tm.Map.Load(key)
+	casted, ok2 := value.(V)
+	return casted, ok1 && ok2
 }
 
 
